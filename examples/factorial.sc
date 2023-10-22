@@ -6,6 +6,6 @@ fn factorial( n) {
 }
 
 fn main() {
-    x = factorial(150)
+    x = factorial(6)
     ret x
 }
