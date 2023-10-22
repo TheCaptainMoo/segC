@@ -1,4 +1,4 @@
-fn factorial( n) {
+fn factorial(n) {
     if n == 0 {
         ret 1
     }
