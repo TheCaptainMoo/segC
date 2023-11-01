@@ -6,8 +6,10 @@ import (
 	"unicode"
 )
 
+type TokenType int
+
 const (
-	TOK_ID = iota
+	TOK_ID TokenType = iota
 	TOK_SET
 	TOK_FN
 	TOK_RET
@@ -30,10 +32,12 @@ const (
 	TOK_CLOSE_PARENTH
 	TOK_OPEN_CURLY
 	TOK_CLOSE_CURLY
+	TOK_OPEN_SQUARE
+	TOK_CLOSE_SQUARE
 )
 
 type Token struct {
-	Type  uint
+	Type  TokenType
 	Lexme string
 }
 
@@ -41,7 +45,7 @@ func PrintToken(tok Token) {
 	fmt.Printf("Token ( %s )\n", tok.Lexme)
 }
 
-func TokenTypeFromString(str string) uint {
+func TokenTypeFromString(str string) TokenType {
 	switch str {
 	case "fn":
 		return TOK_FN
@@ -104,6 +108,10 @@ func Tokenize(source string) []Token {
 			tokens = append(tokens, Token{Type: TOK_OPEN_CURLY, Lexme: "{"})
 		case '}':
 			tokens = append(tokens, Token{Type: TOK_CLOSE_CURLY, Lexme: "}"})
+		case '[':
+			tokens = append(tokens, Token{Type: TOK_OPEN_SQUARE, Lexme: "["})
+		case ']':
+			tokens = append(tokens, Token{Type: TOK_CLOSE_SQUARE, Lexme: "]"})
 		default:
 			if unicode.IsLetter(rune(source[i])) {
 				lexme := ""

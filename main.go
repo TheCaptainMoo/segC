@@ -21,15 +21,24 @@ func main() {
 
 	ast.Interpret(nil)
 
-	main := FindFunction(functions, "main")
+	main, ok := functions["main"]
 
-	if main == nil {
+	if !ok {
 		log.Fatalln("ERROR: Entry point not defined!")
 	}
 
-	errCode := 0
-	if v := main.Body.Interpret(nil); v != nil {
-		errCode = int(v.(float64))
+	var exprs []Expression
+
+	if len(args)-2 != len(main.Args) {
+		log.Println("ERROR: Number of Command-line arguments not matching!")
+		log.Fatalln("Expected: ", len(main.Args))
+		log.Fatalln("Recived: ", len(args)-2)
 	}
+
+	for i := 2; i < len(args); i++ {
+		exprs = append(exprs, ExpressionLiteral{Type: num_literal, Tok: Token{Type: TOK_NUM, Lexme: args[i]}})
+	}
+
+	errCode := main.Call(exprs, nil)
 	os.Exit(errCode)
 }

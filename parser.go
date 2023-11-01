@@ -18,14 +18,16 @@ type Expression interface {
 	ASTNode
 }
 
+type LiteralType int
+
 const (
-	num_literal = iota
+	num_literal LiteralType = iota
 	id_literal
 )
 
 type ExpressionLiteral struct {
 	Expression
-	Type uint
+	Type LiteralType
 	Tok  Token
 }
 
@@ -41,7 +43,7 @@ type ExpressionCall struct {
 	Args []Expression
 }
 
-type ExpressionReturn struct {
+type StatementReturn struct {
 	Expression
 	Value Expression
 }
@@ -63,12 +65,12 @@ type ExpressionUnaryOp struct {
 	Operation Token
 }
 
-type ExpressionConditional struct {
-	Expression
+type StatementConditional struct {
+	Statement
 	Tok       Token
 	Condition Expression
 	Body      ExpressionBlock
-	Last      Expression // just for else/elsif statements
+	Next      Statement // just for else/elsif statements
 }
 
 type StatementProgram struct {
@@ -93,6 +95,14 @@ func TokensShift(tokens *[]Token) Token {
 	return tok
 }
 
+func TokensCur(tokens *[]Token) Token {
+	return (*tokens)[0]
+}
+
+func TokensNext(tokens *[]Token) Token {
+	return (*tokens)[1]
+}
+
 func ParseLiteral(token Token) ExpressionLiteral {
 	switch token.Type {
 	case TOK_NUM:
@@ -110,18 +120,29 @@ func ParseAssigment(id string, tokens *[]Token) ExpressionAssigment {
 }
 
 func ParseBinaryOperation(expr Expression, tokens *[]Token) ExpressionBinOp {
-	return ExpressionBinOp{Left: expr, Operation: TokensShift(tokens), Right: ParseExpression(tokens)}
+	binop := ExpressionBinOp{Left: expr, Operation: TokensShift(tokens)}
+	switch TokensCur(tokens).Type {
+	case TOK_PLUS, TOK_MINUS, TOK_MULT, TOK_DIV, TOK_EQUALS, TOK_LESS_THAN, TOK_GREATER_THAN, TOK_AND, TOK_OR:
+		binop = ParseBinaryOperation(binop, tokens)
+	default:
+		binop.Right = ParseExpression(tokens)
+	}
+	return binop
 }
 
 func ParseUnaryOperation(tok Token, tokens *[]Token) ExpressionUnaryOp {
 	return ExpressionUnaryOp{Value: ParseExpression(tokens), Operation: tok}
 }
 
-func ParseConditional(tok Token, tokens *[]Token) ExpressionConditional {
+func ParseConditional(tok Token, tokens *[]Token) StatementConditional {
 	if tok.Type == TOK_ELSE {
-		return ExpressionConditional{Tok: tok, Body: ParseBlock(tokens)}
+		return StatementConditional{Tok: tok, Body: ParseBlock(tokens)}
 	}
-	return ExpressionConditional{Tok: tok, Condition: ParseExpression(tokens), Body: ParseBlock(tokens)}
+	expr := StatementConditional{Tok: tok, Condition: ParseExpression(tokens), Body: ParseBlock(tokens)}
+	if v := TokensCur(tokens); v.Type == TOK_ELSE || v.Type == TOK_ELSIF {
+		expr.Next = ParseConditional(TokensShift(tokens), tokens)
+	}
+	return expr
 }
 
 func ParseCall(id string, tokens *[]Token) ExpressionCall {
@@ -129,11 +150,25 @@ func ParseCall(id string, tokens *[]Token) ExpressionCall {
 
 	var arguments []Expression
 
-	for (*tokens)[0].Type != TOK_CLOSE_PARENTH {
+	for TokensCur(tokens).Type != TOK_CLOSE_PARENTH {
 		arguments = append(arguments, ParseExpression(tokens))
 	}
 	TokensShift(tokens)
 	return ExpressionCall{Id: id, Args: arguments}
+}
+
+func Parse(tokens *[]Token) ASTNode {
+	// Try and parse everything as a Statement
+	switch TokensCur(tokens).Type {
+	case TOK_RET:
+		TokensShift(tokens)
+		return ParseReturn(tokens)
+	case TOK_IF, TOK_ELSE, TOK_ELSIF, TOK_WHILE:
+		return ParseConditional(TokensShift(tokens), tokens)
+	default:
+		// If you can't, parse it as an Expression
+		return ParseExpression(tokens)
+	}
 }
 
 func ParseExpression(tokens *[]Token) Expression {
@@ -142,42 +177,35 @@ func ParseExpression(tokens *[]Token) Expression {
 	tok := TokensShift(tokens)
 
 	switch tok.Type {
-	case TOK_RET:
-		expr = ParseReturn(tokens)
 	case TOK_NUM:
-		switch (*tokens)[0].Type {
-		case TOK_PLUS, TOK_MINUS, TOK_MULT, TOK_DIV, TOK_EQUALS, TOK_LESS_THAN, TOK_GREATER_THAN, TOK_AND, TOK_OR:
-			expr = ParseBinaryOperation(ParseLiteral(tok), tokens)
-		default:
-			expr = ParseLiteral(tok)
-		}
+		expr = ParseLiteral(tok)
 	case TOK_ID:
-		switch (*tokens)[0].Type {
+		switch TokensCur(tokens).Type {
 		case TOK_SET:
 			expr = ParseAssigment(tok.Lexme, tokens)
 		case TOK_OPEN_PARENTH:
 			expr = ParseCall(tok.Lexme, tokens)
-			switch (*tokens)[0].Type {
+			switch TokensCur(tokens).Type {
 			case TOK_PLUS, TOK_MINUS, TOK_MULT, TOK_DIV, TOK_EQUALS, TOK_LESS_THAN, TOK_GREATER_THAN, TOK_AND, TOK_OR:
 				expr = ParseBinaryOperation(expr, tokens)
 			}
-		case TOK_PLUS, TOK_MINUS, TOK_MULT, TOK_DIV, TOK_EQUALS, TOK_LESS_THAN, TOK_GREATER_THAN, TOK_AND, TOK_OR:
-			expr = ParseBinaryOperation(ParseLiteral(tok), tokens)
 		default:
 			expr = ParseLiteral(tok)
 		}
 	case TOK_NOT, TOK_MINUS:
 		expr = ParseUnaryOperation(tok, tokens)
-	case TOK_IF, TOK_ELSE, TOK_ELSIF, TOK_WHILE:
-		expr = ParseConditional(tok, tokens)
 	default:
 		log.Fatalln("TODO: Implement parsing for token \"" + tok.Lexme + "\" !")
+	}
+	switch TokensCur(tokens).Type {
+	case TOK_PLUS, TOK_MINUS, TOK_MULT, TOK_DIV, TOK_EQUALS, TOK_LESS_THAN, TOK_GREATER_THAN, TOK_AND, TOK_OR:
+		expr = ParseBinaryOperation(expr, tokens)
 	}
 	return expr
 }
 
-func ParseReturn(tokens *[]Token) ExpressionReturn {
-	return ExpressionReturn{Value: ParseExpression(tokens)}
+func ParseReturn(tokens *[]Token) StatementReturn {
+	return StatementReturn{Value: ParseExpression(tokens)}
 }
 
 func ParseBlock(tokens *[]Token) ExpressionBlock {
@@ -191,57 +219,47 @@ func ParseBlock(tokens *[]Token) ExpressionBlock {
 	}
 
 	indentationLevel := 0
-	for (*tokens)[0].Type != TOK_CLOSE_CURLY || indentationLevel != 0 {
-		if (*tokens)[0].Type == TOK_OPEN_CURLY {
+	for TokensCur(tokens).Type != TOK_CLOSE_CURLY || indentationLevel != 0 {
+		if TokensCur(tokens).Type == TOK_OPEN_CURLY {
 			indentationLevel++
-		} else if (*tokens)[0].Type == TOK_CLOSE_CURLY {
+		} else if TokensCur(tokens).Type == TOK_CLOSE_CURLY {
 			indentationLevel--
 		}
 
-		expr := ParseExpression(tokens)
+		expr := Parse(tokens)
 
 		if expr != nil {
-			if IsType(expr, ExpressionConditional{}) {
-				if v := expr.(ExpressionConditional); v.Tok.Type == TOK_ELSE || v.Tok.Type == TOK_ELSIF {
-					for i := len(block.Body) - 1; i >= 0; i-- {
-						if IsType(block.Body[i], ExpressionConditional{}) {
-							v.Last = block.Body[i]
-							expr = v
-							break
-						}
-					}
-
-					if expr.(ExpressionConditional).Last == nil {
-						fmt.Println("ERROR: Don't forget that", v.Tok.Lexme, "is used after another condition!\nHere is an example:")
-						fmt.Println("Wrong way:")
-						fmt.Println("fn main() {")
-						if v.Tok.Type != TOK_ELSE {
-							fmt.Println("\t" + v.Tok.Lexme + " y == 24 {")
-							fmt.Println("\t\tret 0")
-							fmt.Println("\t}")
-						} else {
-							fmt.Println("\t"+v.Tok.Lexme, "{")
-							fmt.Println("\t\tret 0")
-							fmt.Println("\t}")
-						}
-						fmt.Println("}")
-						fmt.Println("Right way:")
-						fmt.Println("fn main() {")
-						fmt.Println("\tif y != 0 {")
-						fmt.Println("\t\tret 1")
+			if IsType(expr, StatementConditional{}) {
+				if v := expr.(StatementConditional); v.Tok.Type != TOK_IF || v.Tok.Type == TOK_WHILE {
+					fmt.Println("ERROR: Don't forget that", v.Tok.Lexme, "is used after another condition!\nHere is an example:")
+					fmt.Println("Wrong way:")
+					fmt.Println("fn main() {")
+					if v.Tok.Type != TOK_ELSE {
+						fmt.Println("\t" + v.Tok.Lexme + " y == 24 {")
+						fmt.Println("\t\tret 0")
 						fmt.Println("\t}")
-						if v.Tok.Type != TOK_ELSE {
-							fmt.Println("\t" + v.Tok.Lexme + " y == 24 {")
-							fmt.Println("\t\tret 0")
-							fmt.Println("\t}")
-						} else {
-							fmt.Println("\t"+v.Tok.Lexme, "{")
-							fmt.Println("\t\tret 0")
-							fmt.Println("\t}")
-						}
-						fmt.Println("}")
-						os.Exit(1)
+					} else {
+						fmt.Println("\t"+v.Tok.Lexme, "{")
+						fmt.Println("\t\tret 0")
+						fmt.Println("\t}")
 					}
+					fmt.Println("}")
+					fmt.Println("Right way:")
+					fmt.Println("fn main() {")
+					fmt.Println("\tif y != 0 {")
+					fmt.Println("\t\tret 1")
+					fmt.Println("\t}")
+					if v.Tok.Type != TOK_ELSE {
+						fmt.Println("\t" + v.Tok.Lexme + " y == 24 {")
+						fmt.Println("\t\tret 0")
+						fmt.Println("\t}")
+					} else {
+						fmt.Println("\t"+v.Tok.Lexme, "{")
+						fmt.Println("\t\tret 0")
+						fmt.Println("\t}")
+					}
+					fmt.Println("}")
+					os.Exit(1)
 				}
 			}
 		}
@@ -263,7 +281,7 @@ func ParseFunctionDeclaration(tokens *[]Token) Statement {
 		os.Exit(1)
 	}
 	var args []string
-	for (*tokens)[0].Type != TOK_CLOSE_PARENTH {
+	for TokensCur(tokens).Type != TOK_CLOSE_PARENTH {
 		v := TokensShift(tokens)
 		if v.Type == TOK_OPEN_CURLY {
 			fmt.Println("ERROR: Don't forget to close parentheses when declaring a function!\nHere is an example:")
@@ -292,7 +310,7 @@ func ParseProgram(tokens *[]Token) StatementProgram {
 		case TOK_FN:
 			program.Body = append(program.Body, ParseFunctionDeclaration(tokens))
 		case TOK_ID:
-			switch (*tokens)[0].Type {
+			switch TokensCur(tokens).Type {
 			case TOK_SET:
 				program.Body = append(program.Body, ParseAssigment(tok.Lexme, tokens))
 			}

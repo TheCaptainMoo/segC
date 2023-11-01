@@ -6,12 +6,11 @@ import (
 )
 
 type Variable struct {
-	Id    string
-	Value float64
+	Value int
 }
 
 type Scope struct {
-	Variables []Variable
+	Variables map[string]Variable
 	Parent    *Scope
 }
 
@@ -22,27 +21,18 @@ type Function struct {
 }
 
 type RetVal struct {
-	Value float64
+	Value int
 }
 
-var functions []Function
-var mainScope Scope = Scope{Parent: nil}
-
-func FindFunction(fns []Function, id string) *Function {
-	for i := 0; i < len(fns); i++ {
-		if fns[i].Id == id {
-			return &fns[i]
-		}
-	}
-	return nil
-}
+var functions map[string]Function = make(map[string]Function)
+var mainScope Scope = Scope{Variables: make(map[string]Variable), Parent: nil}
 
 func FindVariable(scope *Scope, id string) *Variable {
-	for i := 0; i < len(scope.Variables); i++ {
-		if scope.Variables[i].Id == id {
-			return &scope.Variables[i]
-		}
+	v, ok := scope.Variables[id]
+	if ok {
+		return &v
 	}
+
 	if scope.Parent != nil {
 		return FindVariable(scope.Parent, id)
 	}
@@ -56,40 +46,44 @@ func (n ExpressionBinOp) Interpret(scope *Scope) interface{} {
 	if n.Right.Interpret(scope) == nil {
 		log.Fatalln("ERROR: Can't operate with a nil type!")
 	}
+
+	left := n.Left.Interpret(scope).(int)
+	right := n.Right.Interpret(scope).(int)
+
 	switch n.Operation.Type {
 	case TOK_PLUS:
-		return n.Left.Interpret(scope).(float64) + n.Right.Interpret(scope).(float64)
+		return left + right
 	case TOK_MINUS:
-		return n.Left.Interpret(scope).(float64) - n.Right.Interpret(scope).(float64)
+		return left - right
 	case TOK_MULT:
-		return n.Left.Interpret(scope).(float64) * n.Right.Interpret(scope).(float64)
+		return left * right
 	case TOK_DIV:
-		return n.Left.Interpret(scope).(float64) / n.Right.Interpret(scope).(float64)
+		return left / right
 	case TOK_EQUALS:
-		if n.Left.Interpret(scope).(float64) == n.Right.Interpret(scope).(float64) {
-			return 1.0
+		if left == right {
+			return 1
 		}
-		return 0.0
+		return 0
 	case TOK_LESS_THAN:
-		if n.Left.Interpret(scope).(float64) < n.Right.Interpret(scope).(float64) {
-			return 1.0
+		if left < right {
+			return 1
 		}
-		return 0.0
+		return 0
 	case TOK_GREATER_THAN:
-		if n.Left.Interpret(scope).(float64) > n.Right.Interpret(scope).(float64) {
-			return 1.0
+		if left > right {
+			return 1
 		}
-		return 0.0
+		return 0
 	case TOK_AND:
-		if n.Left.Interpret(scope).(float64) != 0 && n.Right.Interpret(scope).(float64) != 0 {
-			return 1.0
+		if left != 0 && right != 0 {
+			return 1
 		}
-		return 0.0
+		return 0
 	case TOK_OR:
-		if n.Left.Interpret(scope).(float64) != 0 || n.Right.Interpret(scope).(float64) != 0 {
-			return 1.0
+		if left != 0 || right != 0 {
+			return 1
 		}
-		return 0.0
+		return 0
 	}
 	return nil
 }
@@ -100,43 +94,41 @@ func (n ExpressionUnaryOp) Interpret(scope *Scope) interface{} {
 	}
 	switch n.Operation.Type {
 	case TOK_NOT:
-		if n.Value.Interpret(scope).(float64) == 0 {
+		if n.Value.Interpret(scope).(int) == 0 {
 			return 1.0
 		}
 		return 0.0
 	case TOK_MINUS:
-		return -(n.Value.Interpret(scope).(float64))
+		return -(n.Value.Interpret(scope).(int))
 	}
 	return nil
 }
 
-func (n ExpressionConditional) Interpret(scope *Scope) interface{} {
-	// TODO: Add a check if some idiot puts a "ret" inside a conditional cuz it is 100% posible to do
+func (n StatementConditional) Interpret(scope *Scope) interface{} {
 	switch n.Tok.Type {
 	case TOK_IF:
 		v := n.Condition.Interpret(scope)
-		if v.(float64) != 0 {
+		if v.(int) != 0 {
 			return n.Body.Interpret(scope)
+		} else {
+			if n.Next != nil {
+				return n.Next.Interpret(scope)
+			}
 		}
 	case TOK_WHILE:
-		for n.Condition.Interpret(scope).(float64) != 0 {
+		for n.Condition.Interpret(scope).(int) != 0 {
 			val := n.Body.Interpret(scope)
 			if IsType(val, RetVal{}) {
 				return val
 			}
 		}
 	case TOK_ELSE:
-		v := n.Last.(ExpressionConditional)
-		if v.Condition.Interpret(scope).(float64) == 0 {
-			if v.Last != nil && v.Last.(ExpressionConditional).Condition.Interpret(scope).(float64) != 0 {
-				return nil
-			}
-			return n.Body.Interpret(scope)
-		}
+		return n.Body.Interpret(scope)
 	case TOK_ELSIF:
-		v := n.Last.(ExpressionConditional)
-		if v.Condition.Interpret(scope).(float64) == 0 && n.Condition.Interpret(scope).(float64) != 0 {
+		if n.Condition.Interpret(scope).(int) != 0 {
 			return n.Body.Interpret(scope)
+		} else {
+			return n.Next.Interpret(scope)
 		}
 	}
 	return nil
@@ -152,9 +144,9 @@ func (n StatementProgram) Interpret(scope *Scope) interface{} {
 
 func (n ExpressionBlock) Interpret(scope *Scope) interface{} {
 	if scope == nil {
-		scope = &Scope{Parent: &mainScope}
+		scope = &Scope{Variables: make(map[string]Variable), Parent: &mainScope}
 	} else {
-		scope = &Scope{Parent: scope}
+		scope = &Scope{Variables: make(map[string]Variable), Parent: scope}
 	}
 	for i := 0; i < len(n.Body); i++ {
 		result := n.Body[i].Interpret(scope)
@@ -163,8 +155,8 @@ func (n ExpressionBlock) Interpret(scope *Scope) interface{} {
 				return result.(RetVal).Value
 			}
 
-			if IsType(n.Body[i], ExpressionConditional{}) {
-				return result.(float64)
+			if IsType(n.Body[i], StatementConditional{}) {
+				return result
 			}
 		}
 	}
@@ -172,32 +164,43 @@ func (n ExpressionBlock) Interpret(scope *Scope) interface{} {
 }
 
 func (n StatementFunctionDeclaration) Interpret(scope *Scope) interface{} {
-	functions = append(functions, Function{Id: n.Id, Args: n.Args, Body: n.Body})
+	functions[n.Id] = Function{Id: n.Id, Args: n.Args, Body: n.Body}
 	return nil
 }
 
+func (fun Function) Call(Args []Expression, scope *Scope) int {
+	newScope := Scope{Variables: make(map[string]Variable), Parent: &mainScope}
+
+	for i := 0; i < len(fun.Args); i++ {
+		newScope.Variables[fun.Args[i]] = Variable{Value: Args[i].Interpret(scope).(int)}
+	}
+
+	val := fun.Body.Interpret(&newScope)
+
+	if val == nil {
+		log.Printf("WARNING: \"%s\" function should return something!\n", fun.Id)
+		return 0
+	}
+
+	return val.(int)
+}
+
 func (n ExpressionCall) Interpret(scope *Scope) interface{} {
-	v := FindFunction(functions, n.Id)
-	if v == nil {
+	v, ok := functions[n.Id]
+	if !ok {
 		log.Fatalln("ERROR: Can't call function", n.Id, "cuz it is not defined!")
 	}
 	if len(n.Args) != len(v.Args) {
 		log.Fatalln("ERROR: Number of arguments is not matching in call to function", n.Id, "!\nExpected arguments count:", len(v.Args), "\nArguments count recived: ", len(n.Args))
 	}
 
-	newScope := Scope{Parent: &mainScope}
-
-	for i := 0; i < len(n.Args); i++ {
-		newScope.Variables = append(newScope.Variables, Variable{Id: v.Args[i], Value: n.Args[i].Interpret(scope).(float64)})
-	}
-
-	return v.Body.Interpret(&newScope)
+	return v.Call(n.Args, scope)
 }
 
 func (n ExpressionLiteral) Interpret(scope *Scope) interface{} {
 	switch n.Type {
 	case num_literal:
-		val, err := strconv.ParseFloat(n.Tok.Lexme, 64)
+		val, err := strconv.Atoi(n.Tok.Lexme)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -212,20 +215,16 @@ func (n ExpressionLiteral) Interpret(scope *Scope) interface{} {
 	return nil
 }
 
-func (n ExpressionReturn) Interpret(scope *Scope) interface{} {
-	return RetVal{Value: n.Value.Interpret(scope).(float64)}
+func (n StatementReturn) Interpret(scope *Scope) interface{} {
+	return RetVal{Value: n.Value.Interpret(scope).(int)}
 }
 
 func (n ExpressionAssigment) Interpret(scope *Scope) interface{} {
-	variable := FindVariable(&mainScope, n.Id)
-	if variable == nil {
-		mainScope.Variables = append(mainScope.Variables, Variable{Id: n.Id})
-		variable = &mainScope.Variables[len(mainScope.Variables)-1]
-	}
+
 	v := n.Value.Interpret(scope)
 	if v == nil {
 		log.Fatalln("ERROR: Can't set variable", n.Id, "to a nil value!")
 	}
-	variable.Value = v.(float64)
-	return variable.Value
+	scope.Variables[n.Id] = Variable{Value: v.(int)}
+	return scope.Variables[n.Id]
 }
