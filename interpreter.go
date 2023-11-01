@@ -171,6 +171,10 @@ func (n StatementFunctionDeclaration) Interpret(scope *Scope) interface{} {
 func (fun Function) Call(Args []Expression, scope *Scope) int {
 	newScope := Scope{Variables: make(map[string]Variable), Parent: &mainScope}
 
+	if len(fun.Args) != len(Args) {
+		log.Fatalln("ERROR: Number of arguments is not matching in call to function", fun.Id, "!\nExpected arguments count:", len(fun.Args), "\nArguments count recived: ", len(Args))
+	}
+
 	for i := 0; i < len(fun.Args); i++ {
 		newScope.Variables[fun.Args[i]] = Variable{Value: Args[i].Interpret(scope).(int)}
 	}
@@ -188,10 +192,7 @@ func (fun Function) Call(Args []Expression, scope *Scope) int {
 func (n ExpressionCall) Interpret(scope *Scope) interface{} {
 	v, ok := functions[n.Id]
 	if !ok {
-		log.Fatalln("ERROR: Can't call function", n.Id, "cuz it is not defined!")
-	}
-	if len(n.Args) != len(v.Args) {
-		log.Fatalln("ERROR: Number of arguments is not matching in call to function", n.Id, "!\nExpected arguments count:", len(v.Args), "\nArguments count recived: ", len(n.Args))
+		log.Fatalln("ERROR: Can't call function", n.Id, "because it is not defined!")
 	}
 
 	return v.Call(n.Args, scope)

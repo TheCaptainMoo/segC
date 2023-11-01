@@ -41,6 +41,8 @@ type Token struct {
 	Lexme string
 }
 
+type TokenList []Token
+
 func PrintToken(tok Token) {
 	fmt.Printf("Token ( %s )\n", tok.Lexme)
 }
@@ -63,8 +65,8 @@ func TokenTypeFromString(str string) TokenType {
 	return TOK_ID
 }
 
-func Tokenize(source string) []Token {
-	var tokens []Token
+func Tokenize(source string) TokenList {
+	var tokens TokenList
 
 	i := 0
 	for ; i < len(source); i++ {
