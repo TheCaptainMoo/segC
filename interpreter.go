@@ -27,14 +27,14 @@ type RetVal struct {
 var functions map[string]Function = make(map[string]Function)
 var mainScope Scope = Scope{Variables: make(map[string]Variable), Parent: nil}
 
-func FindVariable(scope *Scope, id string) *Variable {
-	v, ok := scope.Variables[id]
+func FindVariableScope(scope *Scope, id string) *Scope {
+	_, ok := scope.Variables[id]
 	if ok {
-		return &v
+		return scope
 	}
 
 	if scope.Parent != nil {
-		return FindVariable(scope.Parent, id)
+		return FindVariableScope(scope.Parent, id)
 	}
 	return nil
 }
@@ -207,11 +207,11 @@ func (n ExpressionLiteral) Interpret(scope *Scope) interface{} {
 		}
 		return val
 	case id_literal:
-		v := FindVariable(scope, n.Tok.Lexme)
-		if v == nil {
-			log.Fatalln("ERROR: Can't access variable", n.Tok.Lexme, "cuz it does not exist!")
+		s := FindVariableScope(scope, n.Tok.Lexme)
+		if s == nil {
+			log.Fatalln("ERROR: Can't access variable", n.Tok.Lexme, "because it does not exist!")
 		}
-		return v.Value
+		return s.Variables[n.Tok.Lexme].Value
 	}
 	return nil
 }
@@ -226,6 +226,11 @@ func (n ExpressionAssigment) Interpret(scope *Scope) interface{} {
 	if v == nil {
 		log.Fatalln("ERROR: Can't set variable", n.Id, "to a nil value!")
 	}
-	scope.Variables[n.Id] = Variable{Value: v.(int)}
-	return scope.Variables[n.Id]
+
+	s := FindVariableScope(scope, n.Id)
+	if s == nil {
+		s = scope
+	}
+	s.Variables[n.Id] = Variable{Value: v.(int)}
+	return s.Variables[n.Id]
 }

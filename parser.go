@@ -120,14 +120,7 @@ func ParseAssigment(id string, tokens *TokenList) ExpressionAssigment {
 }
 
 func ParseBinaryOperation(expr Expression, tokens *TokenList) ExpressionBinOp {
-	binop := ExpressionBinOp{Left: expr, Operation: tokens.shift()}
-	switch tokens.cur().Type {
-	case TOK_PLUS, TOK_MINUS, TOK_MULT, TOK_DIV, TOK_EQUALS, TOK_LESS_THAN, TOK_GREATER_THAN, TOK_AND, TOK_OR:
-		binop = ParseBinaryOperation(binop, tokens)
-	default:
-		binop.Right = ParseExpression(tokens)
-	}
-	return binop
+	return ExpressionBinOp{Left: expr, Operation: tokens.shift(), Right: ParseExpression(tokens)}
 }
 
 func ParseUnaryOperation(tok Token, tokens *TokenList) ExpressionUnaryOp {
